@@ -1,0 +1,6 @@
+__pycache__/
+*.v
+*.vcd
+modules/
+nix/
+run_shell
