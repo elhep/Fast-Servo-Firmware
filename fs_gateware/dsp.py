@@ -1,5 +1,8 @@
 from migen import *
 from collections import namedtuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 DSPWidths = namedtuple("DSPWidths", [
     "data",
@@ -9,7 +12,7 @@ DSPWidths = namedtuple("DSPWidths", [
 )
 
 class DSP(Module):
-    def __init__(self, widths, double_registered=False):
+    def __init__(self, widths, double_registered=False, feedback = False):
 
         self.data = Signal(widths.data)
         self.coeff = Signal(widths.coeff)
@@ -30,25 +33,44 @@ class DSP(Module):
 
         ###
         self.comb += self.acout.eq(ad)
-        self.sync += [
-            b.eq(self.coeff),
 
-            m.eq(ad*b),
-            # self.acout.eq(ad),
-            
-            self.output.eq(m+self.carryin)
-        ]
-
-        if double_registered:
-            self.sync += [
-                a.eq(self.data),
-                d.eq(self.offset),
-                ad.eq(a+d)
+        if feedback:
+            self.sync.dsp4 += [
+                b.eq(self.coeff),
+                m.eq(ad*b),
             ]
+            self.sync += self.output.eq(m)
+
+            if double_registered:
+                self.sync.dsp4 += [
+                    a.eq(self.data),
+                    d.eq(self.offset),
+                    ad.eq(a+d)
+                ]
+            else:
+                self.sync.dsp4 += [
+                    ad.eq(self.data)
+                ]
+
         else:
             self.sync += [
-                ad.eq(self.data)
+                b.eq(self.coeff),
+                m.eq(ad*b),
+                # self.acout.eq(ad),
+                self.output.eq(m+self.carryin)
             ]
+
+            if double_registered:
+                self.sync += [
+                    a.eq(self.data),
+                    d.eq(self.offset),
+                    ad.eq(a+d)
+                ]
+            else:
+                self.sync += [
+                    ad.eq(self.data)
+                ]
+        
 
 class FIR(Module):
     def __init__(self, widths, taps=3):
@@ -105,26 +127,95 @@ class FIR(Module):
 
 
 class IIR(Module):
-    def __init__(self, widths):
-        self.i_data = Signal(widths.data)
+    def __init__(self, widths, channels=2):
+        self.widths = widths
+        self.adc = [Signal((widths.data, True), reset_less=True) for ch in range (channels)]
+
         self.i_offset = Signal(widths.data)
 
-        self.o_out = Signal(widths.out)
+        self.dac = [Signal((widths.out, True), reset_less=True) for ch in range (channels)]
 
-        self.submodules.fir += FIR(widths)
-        self.submodules.feedback += DSP(widths, True)
+        mem_ports = dict()
+
+        for ch in range(channels):
+            f = FIR(widths)
+            setattr(self.submodules, f"fir{ch}", f)
+            
+            d = DSP(widths, True, True)
+            setattr(self.submodules, f"feedback{ch}", d)
+            
+
+        for _ in "b0 b1 b2".split():
+            m = Memory(width=channels*widths.coeff, depth=2)
+            setattr(self.specials, f"mem_{_}", m)
+            port = getattr(self, f"mem_{_}").get_port()
+            self.specials += port
+            mem_ports[_] = port
 
 
         ### 
+
+        for ch in range(channels):
+            fir = getattr(self, f"fir{ch}")
+            feedback = getattr(self, f"feedback{ch}")
+
+            self.comb += [
+                fir.i_data.eq(self.adc[ch]),
+                fir.i_offset.eq(self.i_offset),
+                fir.i_carryin.eq(0),
+
+                fir.coeff0.eq(mem_ports["b0"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
+                fir.coeff1.eq(mem_ports["b1"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
+                fir.coeff2.eq(mem_ports["b2"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
+
+                feedback.data.eq(fir.o_out),
+                feedback.offset.eq(feedback.output),
+                feedback.coeff.eq(1),
+
+                self.dac[ch].eq(feedback.output)
+            ]
+
+    def get_coeff(self, coeff):
+        w = self.widths
+        mem = getattr(self, f"mem_{coeff}")
+        word = yield mem[0]
+        return word
+
+    def fmt_word(self, mem_word, coeff, **kwargs):
+        assert coeff in "b0 b1 b2".split()
+        assert (len(kwargs)>0 & (len(kwargs)<=2))
+        assert [ch in "ch0 ch1".split() for ch in kwargs.keys()]
+        w = self.widths
+
+        mask = (1<<w.coeff)-1
+
+        if "ch1" not in kwargs.keys():
+            mask = mask<<w.coeff
+            word = (kwargs["ch0"])
+        elif "ch0" not in kwargs.keys():
+            mask = ((0<<w.coeff) | mask)
+            word = (kwargs["ch1"]<<w.coeff)
+        else:
+            mask = 0<<2*w.coeff
+            logger.debug("Mask: {:036b}".format(mask))
+            word = ((kwargs["ch1"]<<w.coeff) | kwargs["ch0"])
+
+        logger.debug("Mask: {:036b}".format(mask))
+        logger.debug("Word: {:036b}".format(word))
+
+        word = ((mem_word & mask) | word)
+        logger.debug("Formatted word: {:036b}".format(word))
         
-        self.comb += [
-            self.fir.i_data.eq(self.i_data),
-            self.fir.i_offset.eq(self.i_offset),
-            self.fir.i_carryin.eq(0),
+        return word
+    
+    def set_coeff(self, coeff, **kwargs):
+        assert coeff in "b0 b1 b2".split()
+        assert [ch in "ch0 ch1".split() for ch in kwargs.keys()]
 
-            self.feedback.data.eq(self.fir.o_out),
-            self.feedback.offset.eq(self.feedback.output),
-            self.feedback.coeff.eq()
+        mem = getattr(self, f"mem_{coeff}")
+        mem_word = yield mem[0]
+        logger.debug("Word from memory: {:036b}".format(mem_word))
 
-            self.o_out.eq(self.feedback.output)
-        ]
+        ch_word = self.fmt_word(mem_word, coeff, **kwargs)
+        yield mem[0].eq(ch_word)
+
