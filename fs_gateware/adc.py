@@ -16,33 +16,33 @@ class ADC(Module):
         self.i_dco = Signal() # incoming clock
         self.i_fr = Signal() # framing signal
         
-        for i in "a":
+        for i in "abcd":
             sdo = Signal()
             setattr(self, f"i_sdo{i}", sdo)
 
         self.done = Signal()
 
-        self.o_data = Signal(4)
+        self.o_data = Signal(16)
         self.locked = Signal()
         
-        frame = Signal(4)
+        frame = Signal(16)
         bitslip = Signal()
 
         self.submodules.time_mgmt = TimeMGMT()
         self.submodules.bitslip = Bitslip()
 
-        for i in "a":
+        for i in "abcd":
             setattr(self.submodules, f"deser_{i}", DeserializerDDR())
         
 
         self.comb += [
             self.deser_a.i_sdo.eq(self.i_sdoa),
-            # self.deser_b.i_sdo.eq(self.i_sdob),
-            # self.deser_c.i_sdo.eq(self.i_sdoc),
-            # self.deser_d.i_sdo.eq(self.i_sdod),
+            self.deser_b.i_sdo.eq(self.i_sdob),
+            self.deser_c.i_sdo.eq(self.i_sdoc),
+            self.deser_d.i_sdo.eq(self.i_sdod),
 
             self.deser_a.i_bitslip.eq(bitslip),
-            # self.deser_b.i_bitslip.eq(bitslip),
+            self.deser_b.i_bitslip.eq(bitslip),
 
             self.bitslip.i_fr.eq(self.i_fr),
             bitslip.eq(self.bitslip.o_bitslip),
@@ -50,19 +50,19 @@ class ADC(Module):
 
             
             self.deser_a.i_rst.eq(self.i_rst),
-            # self.deser_b.i_rst.eq(self.i_rst),
-            # self.deser_c.i_rst.eq(self.i_rst),
-            # self.deser_d.i_rst.eq(self.i_rst),
+            self.deser_b.i_rst.eq(self.i_rst),
+            self.deser_c.i_rst.eq(self.i_rst),
+            self.deser_d.i_rst.eq(self.i_rst),
 
             self.bitslip.i_rst.eq(self.i_rst),
             self.bitslip.i_start.eq(self.locked),
 
             self.o_data[0:4].eq(self.deser_a.o_data),
-            # self.o_data[4:8].eq(self.deser_b.o_data),
-            # self.o_data[8:12].eq(self.deser_c.o_data),
-            # self.o_data[12:16].eq(self.deser_d.o_data),
+            self.o_data[4:8].eq(self.deser_b.o_data),
+            self.o_data[8:12].eq(self.deser_c.o_data),
+            self.o_data[12:16].eq(self.deser_d.o_data),
 
-            # frame.eq(self.bitslip_fsm.o_data),
+            frame.eq(self.bitslip_fsm.o_data),
 
             self.time_mgmt.i_rst.eq(self.i_rst),
             self.time_mgmt.i_dco.eq(self.i_dco),
