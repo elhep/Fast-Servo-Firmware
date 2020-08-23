@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-filter_params = DSPWidths(data=25, coeff=18, out=48)
+filter_params = DSPWidths(data=25, coeff=18, out=48, adc=16, dac=14, norm_factor=8, coeff_shift=10)
 
 
 def dsp_test(double_reg = True):
@@ -81,21 +81,23 @@ def iir_test():
         yield dut.adc[0].eq(3)
         yield dut.adc[1].eq(1)
         # yield dut.i_carryin.eq(0)
-        yield from dut.set_coeff("b0", ch0=1, ch1=2)
-        yield from dut.set_coeff("b1", ch0=1)
-        yield from dut.set_coeff("b2", ch0=1)
+        # yield from dut.set_iir_coeff("b0", ch0=1, ch1=1)
+        # yield from dut.set_iir_coeff("b1", ch0=1, ch1=1)
+        # yield from dut.set_iir_coeff("b2", ch0=1, ch1=1)
+        yield from dut.set_pid_coeff(Kp = 127, Ki = 0, Kd = 0)
         # yield dut.coeff1.eq(1)
         # yield dut.coeff2.eq(1)
         yield
         # yield dut.mem_b0[0].eq(2)
         yield
+        # yield
         yield dut.adc[0].eq(0)
-        yield dut.adc[1].eq(1)
+        # yield dut.adc[1].eq(1)
         for i in range (15):
             yield
         yield dut.adc[0].eq(3)
-        yield from dut.set_coeff("b1", ch0=2)
-        yield from dut.set_coeff("b2", ch0=2)
+        # yield from dut.set_iir_coeff("b1", ch0=2)
+        # yield from dut.set_iir_coeff("b2", ch0=2)
         yield
         yield
         yield dut.adc[0].eq(0)
@@ -118,6 +120,6 @@ def main():
     feedback_test()
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     main()
 

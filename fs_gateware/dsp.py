@@ -8,31 +8,35 @@ DSPWidths = namedtuple("DSPWidths", [
     "data",
     "coeff",
     "out",
+    "adc",
+    "dac",
+    "norm_factor",
+    "coeff_shift",
     ]
 )
 
 class DSP(Module):
     def __init__(self, widths, double_registered=False, feedback = False):
 
-        self.data = Signal(widths.data)
-        self.coeff = Signal(widths.coeff)
-        self.offset = Signal(widths.data)
-        self.carryin = Signal(widths.out)
+        self.data = Signal((widths.data, True))
+        self.coeff = Signal((widths.coeff, True))
+        self.offset = Signal((widths.data, True))
+        self.carryin = Signal((widths.out, True))
 
-        self.acout = Signal(widths.data)
+        self.acout = Signal((widths.data, True))
 
-        self.output = Signal(widths.out)
+        self.output = Signal((widths.out, True))
 
-        a = Signal(widths.data)
-        d = Signal(widths.data)
-        ad = Signal(widths.data)
-        b = Signal(widths.coeff)
-        c = Signal(widths.out)
-        m = Signal(widths.out)
-        p = Signal(widths.out)
+        a = Signal((widths.data, True))
+        d = Signal((widths.data, True))
+        ad = Signal((widths.data, True))
+        b = Signal((widths.coeff, True))
+        c = Signal((widths.out, True))
+        m = Signal((widths.out, True))
+        p = Signal((widths.out, True))
 
         ###
-        self.comb += self.acout.eq(ad)
+        self.comb += self.acout.eq(ad), p.eq(m>>(12))
 
         if feedback:
             self.sync.dsp4 += [
@@ -74,12 +78,12 @@ class DSP(Module):
 
 class FIR(Module):
     def __init__(self, widths, taps=3):
-        self.i_data = Signal(widths.data)
-        self.i_offset = Signal(widths.data)
-        self.i_carryin = Signal(widths.out)
+        self.i_data = Signal((widths.data, True))
+        self.i_offset = Signal((widths.data, True))
+        self.i_carryin = Signal((widths.out, True))
 
-        self.acout = Signal(widths.out)
-        self.o_out = Signal(widths.out)
+        self.acout = Signal((widths.out, True))
+        self.o_out = Signal((widths.out, True))
         
 
         for i in range(taps):
@@ -129,11 +133,11 @@ class FIR(Module):
 class IIR(Module):
     def __init__(self, widths, channels=2):
         self.widths = widths
-        self.adc = [Signal((widths.data, True), reset_less=True) for ch in range (channels)]
+        self.adc = [Signal((widths.adc, True), reset_less=True) for ch in range (channels)]
 
-        self.i_offset = Signal(widths.data)
+        self.i_offset = Signal((widths.data, True))
 
-        self.dac = [Signal((widths.out, True), reset_less=True) for ch in range (channels)]
+        self.dac = [Signal((widths.dac, True), reset_less=True) for ch in range (channels)]
 
         mem_ports = dict()
 
@@ -145,7 +149,7 @@ class IIR(Module):
             setattr(self.submodules, f"feedback{ch}", d)
             
 
-        for _ in "b0 b1 b2".split():
+        for _ in "a1 b0 b1 b2".split():
             m = Memory(width=channels*widths.coeff, depth=2)
             setattr(self.specials, f"mem_{_}", m)
             port = getattr(self, f"mem_{_}").get_port()
@@ -160,7 +164,7 @@ class IIR(Module):
             feedback = getattr(self, f"feedback{ch}")
 
             self.comb += [
-                fir.i_data.eq(self.adc[ch]),
+                fir.i_data.eq(self.adc[ch]<<widths.norm_factor),
                 fir.i_offset.eq(self.i_offset),
                 fir.i_carryin.eq(0),
 
@@ -168,11 +172,13 @@ class IIR(Module):
                 fir.coeff1.eq(mem_ports["b1"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
                 fir.coeff2.eq(mem_ports["b2"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
 
-                feedback.data.eq(fir.o_out),
-                feedback.offset.eq(feedback.output),
-                feedback.coeff.eq(1),
+                feedback.coeff.eq(mem_ports["a1"].dat_r[ch*widths.coeff:(ch+1)*widths.coeff]),
 
-                self.dac[ch].eq(feedback.output)
+                feedback.data.eq((fir.o_out>>(widths.norm_factor+widths.coeff_shift))[:widths.data]),
+                feedback.offset.eq(-(feedback.output>>widths.coeff_shift)[:widths.data]),
+                feedback.coeff.eq(1<<(widths.coeff_shift)),
+
+                self.dac[ch].eq((feedback.output>>widths.coeff_shift)[:widths.dac])
             ]
 
     def get_coeff(self, coeff):
@@ -182,7 +188,7 @@ class IIR(Module):
         return word
 
     def fmt_word(self, mem_word, coeff, **kwargs):
-        assert coeff in "b0 b1 b2".split()
+        assert coeff in "a1 b0 b1 b2".split()
         assert (len(kwargs)>0 & (len(kwargs)<=2))
         assert [ch in "ch0 ch1".split() for ch in kwargs.keys()]
         w = self.widths
@@ -208,8 +214,8 @@ class IIR(Module):
         
         return word
     
-    def set_coeff(self, coeff, **kwargs):
-        assert coeff in "b0 b1 b2".split()
+    def set_iir_coeff(self, coeff, **kwargs):
+        assert coeff in "a1 b0 b1 b2".split()
         assert [ch in "ch0 ch1".split() for ch in kwargs.keys()]
 
         mem = getattr(self, f"mem_{coeff}")
@@ -219,3 +225,30 @@ class IIR(Module):
         ch_word = self.fmt_word(mem_word, coeff, **kwargs)
         yield mem[0].eq(ch_word)
 
+
+    def set_pid_coeff(self, Kp, Ki, Kd):
+        w = self.widths
+        coeff_norm = 1<<w.coeff_shift
+
+        Kp *= coeff_norm
+        if Ki == 0. and Kd == 0.:
+            # pure P
+            a1 = 0
+            b1 = 0
+            b0 = int(round(Kp))
+            b2 = 0
+
+        else:
+            Ki *= coeff_norm*8e-9/2.
+            Kd *= coeff_norm/8e-9
+            c = 1.
+            a1 = int(round((2.*c - 1.)*coeff_norm))
+            b0 = int(round(Kp*c + Ki*c + Kd))
+            b1 = int(round((Ki*c - Kp*c - 2*Kd)*c))
+            b2 = int(round(Kd))
+        
+        yield from self.set_iir_coeff("a1", ch0=b0)
+
+        yield from self.set_iir_coeff("b0", ch0=b0)
+        yield from self.set_iir_coeff("b1", ch0=b1)
+        yield from self.set_iir_coeff("b2", ch0=b2)
