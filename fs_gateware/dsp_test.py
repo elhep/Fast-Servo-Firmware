@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-filter_params = DSPWidths(data=25, coeff=18, out=48, adc=16, dac=14, norm_factor=8, coeff_shift=10)
+filter_params = DSPWidths(data=25, coeff=18, accu=48, adc=16, dac=14, norm_factor=8, coeff_shift=11)
 
 
 def dsp_test(double_reg = True):
@@ -70,21 +70,21 @@ def feedback_test():
     )
 
 def iir_test():
-    tb = IIR(filter_params, 2)
+    tb = IIR(filter_params, 1)
     cd_dsp4 = ClockDomain("dsp4", reset_less=True)
-    tb.clock_domains += cd_dsp4
+    tb.clock_domains += cd_dsp4      
 
     def run(tb):
 
         dut = tb
         yield
-        yield dut.adc[0].eq(3)
-        yield dut.adc[1].eq(1)
+        yield dut.adc[0].eq(-3)
+        # yield dut.adc[1].eq(1)
         # yield dut.i_carryin.eq(0)
         # yield from dut.set_iir_coeff("b0", ch0=1, ch1=1)
         # yield from dut.set_iir_coeff("b1", ch0=1, ch1=1)
         # yield from dut.set_iir_coeff("b2", ch0=1, ch1=1)
-        yield from dut.set_pid_coeff(Kp = 127, Ki = 0, Kd = 0)
+        yield from dut.set_pid_coeff(Kp = 2, Ki = 2, Kd = 0)
         # yield dut.coeff1.eq(1)
         # yield dut.coeff2.eq(1)
         yield
@@ -113,11 +113,69 @@ def iir_test():
             },
         )
 
+class IIRSimulation(IIR):
+    def __init__(self):
+        self.filter_p = DSPWidths(data=25, coeff=18, accu=48, adc=16, dac=14, norm_factor=8, coeff_shift=11)
+
+        self.submodules.iir  = IIR(self.filter_p, channels=1)
+        cd_dsp4 = ClockDomain("dsp4", reset_less=True)
+        self.iir.clock_domains += cd_dsp4
+
+    def test (self):
+        x0 = -30
+        x1 = 16
+        x2 = -132
+        
+        b0 = -2
+        b1 = 5
+        b2 = 1
+        a1 = 1
+
+        ys = list()
+        ys.append(b0*x0)
+        ys.append(b0*x1 + b1*x0 - a1*ys[0])
+        ys.append(b0*x2 + b1*x1 + b2*x0 - a1*ys[1])
+        ys.append(b1*x2 + b2*x1 - a1*ys[2])
+        ys.append(b2*x2 - a1*ys[3])
+        ys.append(- a1*ys[4])
+
+        yield from self.iir.set_iir_coeff("b0", ch0=b0<<self.filter_p.coeff_shift)
+        yield from self.iir.set_iir_coeff("b1", ch0=b1<<self.filter_p.coeff_shift)
+        yield from self.iir.set_iir_coeff("b2", ch0=b2<<self.filter_p.coeff_shift)
+        yield from self.iir.set_iir_coeff("a1", ch0=a1<<self.filter_p.coeff_shift)
+        yield self.iir.use_fback.eq(1)
+        yield 
+        yield self.iir.adc[0].eq(x0)
+        yield
+        yield self.iir.adc[0].eq(x1)
+        yield
+        yield self.iir.adc[0].eq(x2)
+        yield
+        yield self.iir.adc[0].eq(0)
+        while not (yield self.iir.dac[0]):
+            yield
+        for ix, _ in enumerate("y0 y1 y2 y3 y4 y5".split()):
+            val = yield from self.iir.get_output(channel=0)
+            assert val == ys[ix]
+            yield
+        yield
+
+    def run(self):
+        run_simulation(self, self.test(), vcd_name="fil.vcd",
+                clocks={
+                    "sys":   (8, 0),
+                    "dsp4":   (2, 0),
+                })
+
 def main():
     # dsp_test()
     # fir_test()
-    iir_test()
-    feedback_test()
+    # iir_test()
+    # feedback_test()
+
+    fil = IIRSimulation()
+    fil.run()
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
