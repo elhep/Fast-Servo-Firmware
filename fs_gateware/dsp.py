@@ -45,11 +45,13 @@ class DSP(Module):
         # sign | guard bits | GB + data | shift
         #  1   |      4     |  7 +  25  |   11
         # DSP guard bits + first actual data bit (sign bit)
-        guard_bits = widths.accu - widths.coeff_shift - widths.data + 1
-        
+        guard_bits = widths.accu - widths.coeff_shift - widths.data + 3 + 1
+        pout_guard_bits = 4
+
         self.underflow = Signal()
         self.overflow = Signal()
         self.clip = Signal()
+        self.pcout_clip = Signal()
 
         # if underflow or overflow occurrs, data is clipped: widths.shift+widths.data LSB remain
         # output is shifted by the widths.shift normalization factor, whereas pcout is not - it is 
@@ -57,9 +59,10 @@ class DSP(Module):
         self.comb += [
             self.clip.eq(p[-guard_bits:] != Replicate(p[-1], guard_bits)),
             self.output.eq(Mux(self.clip, 
-                    Cat(Replicate(~p[-1], widths.data - 1), p[-1]),
+                    Cat(Replicate(~p[-1], widths.data - 3 - 1), Replicate(p[-1], 4)),
                     p[widths.coeff_shift:])),
-            self.pcout.eq(Mux(self.clip, 
+            self.pcout_clip.eq(p[-pout_guard_bits:] != Replicate(p[-1], pout_guard_bits)),
+            self.pcout.eq(Mux(self.pcout_clip, 
                     Cat(Replicate(~p[-1], widths.accu - 1), p[-1]), p)),
             
             If (self.clip,
@@ -83,8 +86,8 @@ class DSP(Module):
             if double_registered:
                 self.sync.dsp4 += [
                     a.eq(self.data),
-                    d.eq(-self.offset),
-                    ad.eq(a+d)
+                    d.eq(self.offset),
+                    ad.eq(a-d)
                 ]
             else:
                 self.sync.dsp4 += [
@@ -121,6 +124,7 @@ class FIR(Module):
         self.o_out = Signal((widths.data, True))
         
 
+        # creating taps amount of DSP slices
         for i in range(taps):
             coeff = Signal(widths.coeff)
             if i == 0:
@@ -130,6 +134,7 @@ class FIR(Module):
             setattr(self.submodules, f"dsp{i}", dsp)
             setattr(self, f"coeff{i}", coeff)
 
+        # connecting outputs and inputs properly - previous output to current input
         if taps > 1:
             for i in range(taps):
                 dsp = getattr(self, f"dsp{i}")
@@ -173,9 +178,12 @@ class IIR(Module):
 
         self.i_offset = Signal((widths.data, True))
 
+        self.iir_out = [Signal((widths.data, True), reset_less=True) for ch in range (channels)]
         self.dac = [Signal((widths.dac, True), reset_less=True) for ch in range (channels)]
 
-        self.use_fback = Signal(reset_less=True)
+        self.use_fback = [Signal(reset_less=True) for ch in range(channels)]
+
+        # self.dac_clip = [Signal() for ch in range(channels)]
 
         mem_ports = dict()
 
@@ -215,9 +223,25 @@ class IIR(Module):
                 feedback.data.eq(fir.o_out),
                 feedback.offset.eq(feedback.output),
 
-                self.dac[ch].eq(Mux(self.use_fback, (feedback.output>>widths.norm_factor)[:widths.dac], 
-                                (fir.o_out>>widths.norm_factor)[:widths.dac])),
+                self.iir_out[ch].eq(Mux(self.use_fback[ch], 
+                            feedback.output,
+                            fir.o_out)),
+                self.dac[ch].eq(self.iir_out[ch][widths.norm_factor:])
             ]
+
+            # # output from DSP is 25 bits wide whereas DAC accepts only 14 bits
+            # # iir_out bit layout (MSB-LSB):
+            # # |     n_sign        |
+            # # | sign | guard bits | widths.dac | widths.norm factor |
+            # # |   1  |      2     |     14     |        8           |
+            # n_sign = widths.data - widths.dac - widths.norm_factor + 1
+
+            # self.comb += [
+            #     self.dac_clip[ch].eq(self.iir_out[ch][-n_sign:] != Replicate(self.iir_out[ch][-1], n_sign)),
+            #     self.dac[ch].eq(Mux(self.dac_clip[ch],
+            #                 Cat(Replicate(~self.iir_out[ch][-1], widths.dac - 1), self.iir_out[ch][-1]), 
+            #                 self.iir_out[ch][widths.norm_factor:]))
+            # ]
 
     def get_coeff(self, coeff):
         w = self.widths
@@ -243,14 +267,25 @@ class IIR(Module):
         if "ch1" not in kwargs.keys():
             mask = mask<<w.coeff
             word = (kwargs["ch0"])
+            if word < 0:
+                word = ((1<<w.coeff) -1) + word
         elif "ch0" not in kwargs.keys():
             mask = ((0<<w.coeff) | mask)
-            word = (kwargs["ch1"]<<w.coeff)
+            word = kwargs["ch1"]
+            if word < 0:
+                word = ((1<<w.coeff) - 1) + word
+            word = word<<w.coeff
         else:
             mask = 0<<2*w.coeff
-            logger.debug("Mask: {:036b}".format(mask))
-            word = ((kwargs["ch1"]<<w.coeff) | kwargs["ch0"])
+            temp = dict()
+            for key, val in kwargs.items():
+                if val < 0:
+                    temp[key] = ((1<<w.coeff) -1) + val
+                else:
+                    temp[key] = val
 
+            logger.debug("Mask: {:036b}".format(mask))
+            word = ((temp["ch1"]<<w.coeff) | temp["ch0"])
         logger.debug("Mask: {:036b}".format(mask))
         logger.debug("Word: {:036b}".format(word))
 
@@ -271,12 +306,11 @@ class IIR(Module):
         yield mem[0].eq(ch_word)
 
 
-    def set_pid_coeff(self, Kp, Ki, Kd):
+    def set_pid_coeff(self, ch, Kp, Ki, Kd):
         w = self.widths
         a_norm = 1 <<w.coeff_shift
         coeff_norm = 1<<w.coeff_shift
-        max_coeff = (1<<w.coeff)-1
-
+        max_coeff = 1<<w.coeff-1
         Kp *= coeff_norm
         if Ki == 0. and Kd == 0.:
             # pure P
@@ -285,10 +319,11 @@ class IIR(Module):
             b0 = int(round(Kp))
             b2 = 0
             logger.debug(f"Pure P: a1 -> {a1}, b0 -> {b0}, b1 -> {b1}, b2 -> {b2}")
-            yield self.use_fback.eq(0)
+            yield self.use_fback[ch].eq(0)
 
         elif Kd == 0.:
             # I or PI
+            # CLK_PERIOD = 30e-6
             Ki *= coeff_norm*CLK_PERIOD/2.
             c = 1.
             a1 = a_norm
@@ -296,7 +331,7 @@ class IIR(Module):
             b1 = int(round(Kp + (Ki - 2.*Kp)*c))
             b2 = 0
             logger.debug(f"PI: a1 -> {a1}, b0 -> {b0}, b1 -> {b1}, b2 -> {b2}")
-            yield self.use_fback.eq(1)
+            yield self.use_fback[ch].eq(1)
 
             # if b1 == -b0:
             #     raise ValueError("low integrator gain and/or gain limit")
@@ -310,30 +345,37 @@ class IIR(Module):
             b1 = int(round((- Kp*c - 2*Kd)*c))
             b2 = int(round(Kd*c))
             logger.debug(f"PD: a1 -> {a1}, b0 -> {b0}, b1 -> {b1}, b2 -> {b2}")
-            yield self.use_fback.eq(0)
+            yield self.use_fback[ch].eq(0)
 
         else:
             # PID
             Ki *= coeff_norm*CLK_PERIOD/2.
             Kd *= coeff_norm/CLK_PERIOD
             c = 1.
-            a1 = int(round((2.*c - 1.)*(-a_norm)))
-            b0 = int(round(Kp*c + Ki*c + Kd))
+            a1 = int(round((2.*c - 1.)*(a_norm)))
+            b0 = int(round(Kp + Ki*c + Kd))
             b1 = int(round((Ki*c - Kp*c - 2*Kd)*c))
             b2 = int(round(Kd))
 
             logger.debug(f"PID: a1 -> {a1}, b0 -> {b0}, b1 -> {b1}, b2 -> {b2}")
-            yield self.use_fback.eq(1)
+            yield self.use_fback[ch].eq(1)
         
 
         if (b0 >= max_coeff or b0 < -max_coeff or
                 b1 >= max_coeff or b1 < -max_coeff or
                 b2 >= max_coeff or b2 < -max_coeff):
+            logger.debug(f"max_coeff {max_coeff} b0 {b0} b1 {b1} b2 {b2}")
             raise ValueError("high gains")
+        if ch==0:
+            yield from self.set_iir_coeff("a1", ch0=a1)
 
-        yield from self.set_iir_coeff("a1", ch0=a1)
+            yield from self.set_iir_coeff("b0", ch0=b0)
+            yield from self.set_iir_coeff("b1", ch0=b1)
+            yield from self.set_iir_coeff("b2", ch0=b2)
+        elif ch==1:
+            yield from self.set_iir_coeff("a1", ch1=a1)
 
-        yield from self.set_iir_coeff("b0", ch0=b0)
-        yield from self.set_iir_coeff("b1", ch0=b1)
-        yield from self.set_iir_coeff("b2", ch0=b2)
-        
+            yield from self.set_iir_coeff("b0", ch1=b0)
+            yield from self.set_iir_coeff("b1", ch1=b1)
+            yield from self.set_iir_coeff("b2", ch1=b2)
+

@@ -1,106 +1,113 @@
 from migen import *
 from dsp import DSPWidths
 from controller import PID
+from adc import ADCParams
+import adc_test
+import dsp_test
 
 import logging
 
 logger = logging.getLogger(__name__)
 
-filter_p = DSPWidths(data=25, coeff=18, accu=48, adc=16, dac=14, norm_factor=8, coeff_shift=11)
 
+class PIDSimulation(PID):
+    def __init__(self):
+        self.filter_p = filter_p = DSPWidths(data=25, coeff=18, accu=48, adc=16, dac=14, norm_factor=8, coeff_shift=11)
+        self.adc_p = adc_p = ADCParams(out_width=16)
 
-def pid_test():
-    tb = PID(filter_p)
-    cd_dac = ClockDomain("dac", reset_less=True)
-    tb.clock_domains += cd_dac
-    cd_dsp4 = ClockDomain("dsp4", reset_less=True)
-    tb.clock_domains += cd_dsp4
-
-    def test(dut):
-        x0 = -3
-        x1 = 6
-        x2 = -10
+        self.submodules.adc_tb = adc_test.TB(self.adc_p)
+        self.iir_tb = dsp_test.IIRSimulation()
         
-        b0 = -2
-        b1 = 3
-        b2 = 1
-        a1 = 1
+        PID.__init__(self, filter_p, adc_p, self.adc_tb, None)
 
-        x3 = 1
-        x4 = -2
-        x5 = 17
+        cd_dac = ClockDomain("dac", reset_less=True)
+        self.clock_domains += cd_dac
+        cd_dsp4 = ClockDomain("dsp4", reset_less=True)
+        self.clock_domains += cd_dsp4
 
 
-        ys = dict()
-        ys["ch0"] = list()
-        ys["ch0"].append(b0*x0)
-        ys["ch0"].append(b0*x1 + b1*x0 - a1*ys["ch0"][0])
-        ys["ch0"].append(b0*x2 + b1*x1 + b2*x0 - a1*ys["ch0"][1])
-        ys["ch0"].append(b1*x2 + b2*x1 - a1*ys["ch0"][2])
-        ys["ch0"].append(b2*x2 - a1*ys["ch0"][3])
-        ys["ch0"].append(- a1*ys["ch0"][4])
+    def test_pid(self):
+        filter_p = self.filter_p
 
-        ys["ch1"] = list()
-        ys["ch1"].append(b0*x3)
-        ys["ch1"].append(b0*x4 + b1*x3 - a1*ys["ch1"][0])
-        ys["ch1"].append(b0*x5 + b1*x4 + b2*x3 - a1*ys["ch1"][1])
-        ys["ch1"].append(b1*x5 + b2*x4 - a1*ys["ch1"][2])
-        ys["ch1"].append(b2*x5- a1*ys["ch1"][3])
-        ys["ch1"].append(- a1*ys["ch1"][4])
+        Kp = 15
+        Ki = 0
+        Kd = 0
+        # Ki = 1
+        # Kd = 1e-7
 
-        yield from dut.iir.set_iir_coeff("b0", ch0=b0<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("b1", ch0=b1<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("b2", ch0=b2<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("a1", ch0=a1<<filter_p.coeff_shift)
-
-        yield
+        yield from self.iir.set_pid_coeff(0, Kp, Ki, Kd)
         
-        yield from dut.iir.set_iir_coeff("b0", ch1=b0<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("b1", ch1=b1<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("b2", ch1=b2<<filter_p.coeff_shift)
-        yield from dut.iir.set_iir_coeff("a1", ch1=a1<<filter_p.coeff_shift)
-
-        yield dut.iir.use_fback.eq(1)
+        # abstraction layer useful for testing
+        yield self.adc_tb.deser_a.undertest.eq(1) 
+        yield self.adc_tb.deser_b.undertest.eq(1) 
+        yield self.adc_tb.deser_c.undertest.eq(1) 
+        yield self.adc_tb.deser_d.undertest.eq(1) 
         yield 
-        yield dut.datain1.eq(x3)
-        yield dut.datain0.eq(x0)
-        yield
-        yield dut.datain1.eq(x4)
-        yield dut.datain0.eq(x1)
-        yield
-        yield dut.datain1.eq(x5)
-        yield dut.datain0.eq(x2)
-        yield
-        yield dut.datain1.eq(0)
-        yield dut.datain0.eq(0)
-        while not (yield dut.iir.dac[0]):
-            yield
-        for ix, _ in enumerate("y0 y1 y2 y3 y4 y5".split()):
-            val0 = yield from dut.iir.get_output(channel=0)
-            assert val0 == ys["ch0"][ix]
-            val1 = yield from dut.iir.get_output(channel=1)
-            assert val1 ==ys["ch1"][ix]
-            yield
-        yield
-        for i in range(10):
-            yield
 
+        # first sample
+        sdoa = 15-9
+        sdob = 15
+        sdoc = 15
+        sdod = 15
+        x0 = (sdod<<12 | sdoc <<8 | sdob << 4 | sdoa)
 
-
-        print(ys)
+        yield self.adc_tb.deser_a.test_data.eq(sdoa)
+        yield self.adc_tb.deser_b.test_data.eq(sdob)
+        yield self.adc_tb.deser_c.test_data.eq(sdoc)
+        yield self.adc_tb.deser_d.test_data.eq(sdod)
+        yield
         
-    run_simulation(tb, [test(tb)],
-            vcd_name="pid_test.vcd",
-            clocks = {
-                "sys":   (8, 0),
-                "dac":   (4, 0),
-                "dsp4":  (2, 0),
-            },
-    )
+        # second sample
+        sdoa = 0
+        sdob = 15
+        sdoc = 15
+        sdod = 15
+        x1 = (sdod<<12 | sdoc <<8 | sdob << 4 | sdoa)
+
+        yield self.adc_tb.deser_a.test_data.eq(sdoa)
+        yield self.adc_tb.deser_b.test_data.eq(sdob)
+        yield self.adc_tb.deser_c.test_data.eq(sdoc)
+        yield self.adc_tb.deser_d.test_data.eq(sdod)
+        yield
+        
+        # third sample
+        sdoa = 1
+        sdob = 2
+        sdoc = 15
+        sdod = 0
+        x2 = (sdod<<12 | sdoc <<8 | sdob << 4 | sdoa)
+
+        yield self.adc_tb.deser_a.test_data.eq(sdoa)
+        yield self.adc_tb.deser_b.test_data.eq(sdob)
+        yield self.adc_tb.deser_c.test_data.eq(sdoc)
+        yield self.adc_tb.deser_d.test_data.eq(sdod)
+        yield
+        
+        yield self.adc_tb.deser_a.test_data.eq(0)
+        yield self.adc_tb.deser_b.test_data.eq(0)
+        yield self.adc_tb.deser_c.test_data.eq(0)
+        yield self.adc_tb.deser_d.test_data.eq(0)
+        yield
+        for i in range(20):
+            yield
+
+
+    def run(self):
+        run_simulation(self, [self.test_pid()],
+                vcd_name="pid_test.vcd",
+                clocks = {
+                    "sys":   (8, 0),
+                    "dac":   (4, 0),
+                    "dsp4":  (2, 0),
+                },
+        )
+
 
 def main():
-    pid_test()
+    pid = PIDSimulation()
+    pid.run()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
 
