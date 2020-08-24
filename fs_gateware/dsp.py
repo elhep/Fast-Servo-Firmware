@@ -308,7 +308,7 @@ class IIR(Module):
 
     def set_pid_coeff(self, ch, Kp, Ki, Kd):
         w = self.widths
-        a_norm = 1 <<w.coeff_shift
+        a_norm = 1 <<(w.coeff_shift -1)
         coeff_norm = 1<<w.coeff_shift
         max_coeff = 1<<w.coeff-1
         Kp *= coeff_norm
@@ -325,6 +325,8 @@ class IIR(Module):
             # I or PI
             # CLK_PERIOD = 30e-6
             Ki *= coeff_norm*CLK_PERIOD/2.
+            print(coeff_norm)
+            print(Ki)
             c = 1.
             a1 = a_norm
             b0 = int(round(Kp + Ki*c))
