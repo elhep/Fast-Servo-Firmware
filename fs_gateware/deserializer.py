@@ -1,15 +1,15 @@
 from migen import *
 
 #  There is a need for at least two clock domains in serdes. 
-#  On DCO pin ADC sends coming back clock on wich the data is valid. It is 200 MHz or 250 Mhz
-#  DDR serdes needs 2 times faster and 2 times sloer clock (in case of 1:4 deserialization) - 
-#  clk2d is when the data is valid on the SERDES output and cl is faster clock  for DDR application
+#  On DCO pin ADC sends coming back clock which indicates when the incoming data is valid. It is 2 times faster than 
+#  clock sent to the ADC IC. 
+#  DCO2D is clock that is two times slower than DCO (the same frequency as the one fed to the ADC). It validates 
+#  exiting data from the Serdes module. 
 
 class DeserializerDDR(Module):
     def __init__(self, mode="DDR"):
         self.o_data = Signal(4)
         self.i_sdo = Signal()
-        self.i_rst = Signal(reset=1)
         self.i_bitslip = Signal()
 
         ###
@@ -24,7 +24,7 @@ class DeserializerDDR(Module):
 
                 i_CE1=1,
                 i_D = self.i_sdo,
-                i_CLKDIV=ClockSignal("dco2d"), i_RST=self.i_rst,
+                i_CLKDIV=ClockSignal("dco2d"), i_RST=ResetSignal("sys"),
                 i_CLK=ClockSignal("dco"), i_CLKB=~ClockSignal("dco"),
                 i_BITSLIP = self.i_bitslip,
                 o_Q1=self.o_data[0],
@@ -35,9 +35,9 @@ class DeserializerDDR(Module):
         ]
 
 if __name__ == "__main__":
-    from migen.build.platforms.sinara import kasli
-    plat = kasli.Platform(hw_rev = "v1.1")
-    #
+    from migen.fhdl.verilog import convert
+
     m = DeserializerDDR()
 
-    plat.build(m, run = True, build_dir = "deser")
+    convert(m, {m.i_sdo, m.i_bitslip, m.o_data}, name="deserializer").write("deser_verilog.v")
+
