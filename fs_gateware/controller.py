@@ -1,19 +1,101 @@
-from migen import *
-from dsp import DSPWidths, IIR
-from dac import DAC
-from adc import ADC
+from collections import namedtuple
 
-class PID(Module):
-    def __init__(self, filter_widths, adc_params, adc_pads, dac_pads):
-        for ch in range(2):
-            adc = ADC(adc_params, adc_pads)
-            setattr(self.submodules, f"adc{ch}", adc)     
-        self.submodules.iir = IIR(filter_widths, channels=2)
+from migen import *
+from fs_gateware.adc import ADC, ADCParams
+from fs_gateware.dac import DAC
+from fs_gateware.dsp import IIR, DSPWidths
+from fs_gateware.spi import SPI, SPIParams
+
+
+class ServoController(Module):
+    def __init__(self, dac_pads, adc_pads, adc_params, iir_params):
+        self.iir_params = iir_p = iir_params
+        self.adc_params = adc_p = adc_params
+
+        self.spi_params = spi_p = SPIParams(data_width=16, clk_width=3, msb_first=1)    # 3 cycles * 8 ns = 24ns <- half cycle of SPI
+
+
+        self.ctrl = Record([
+            ("rst", 1),
+            ("adc_afe_pwr", 1),
+            ("dac_afe_pwr", 1),
+            ("dac_clr", 1),
+            ("en_ch0", 1),
+            ("en_ch1", 1),
+            ("adc_gainx10", 2),
+        ])
+
+        self.mode = Record([
+            ("read_adc", 1),
+            ("set_dac", 1)
+        ])
+
+
+        self.init = Record([
+            ("dac_init", 1),
+            ("adc_init", 1)
+        ])
+
+        self.adc_data = Signal((32, True))
+        self.dac_data = Signal((28, True))
+
+        # self.submodules.adc = ADC(adc_p, pads)
         self.submodules.dac = DAC()
+        # self.submodules.iir = IIR(iir_p, channels=2)
+
+        self.submodules.dac_spi = SPI(dac_pads, spi_p)
+        self.submodules.adc_spi = SPI(adc_pads, spi_p)
+
+
+        old_adc_ready = Signal(reset=1)
+        old_dac_ready = Signal(reset=1)
+
+        ###
 
         self.comb += [
-            self.iir.adc[0].eq(self.adc0.o_data),
-            self.iir.adc[1].eq(self.adc1.o_data),
-            self.dac.idata.eq(self.iir.dac[0]),
-            self.dac.qdata.eq(self.iir.dac[1]),
-            ]
+            self.adc_spi.data.eq((1<<16) | (0x00 << 8) | (1<<8)),   # RESET ADC
+            self.dac_spi.data.eq((1<<16) | (0x00 << 8) | (1<<5)),   # RESET DAC
+        ]
+
+        # Initialize DAC and ADC via SPI (software reset)
+        self.sync += [
+            old_adc_ready.eq(self.adc_spi.ready),
+            old_dac_ready.eq(self.dac_spi.ready),
+
+            # Store in init register converters status
+            If(Cat(old_dac_ready, self.dac_spi.ready) == 0b10,
+                self.init.dac_init.eq(1),
+            ),
+            If(Cat(old_adc_ready, self.adc_spi.ready) == 0b10,
+                self.init.adc_init.eq(1),
+            ),
+            self.adc_spi.enable.eq(~self.init.adc_init & old_adc_ready),
+            self.dac_spi.enable.eq(~self.init.dac_init & old_dac_ready),
+
+            # when dac clear asserted, set DAC outputs to middle point value of the full scale (0V)
+            If(self.ctrl.dac_clr,
+                self.ctrl.dac_clr.eq(0),
+                self.dac_data.eq(Replicate(0, 28))
+            )
+        ]
+
+        # feed DAC with out values - either provided by kernel or form IIR
+        self.comb += [
+            self.dac.idata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14), 
+                                    Mux(self.mode.set_dac, self.dac_data[:14], 0xFA))),
+            self.dac.qdata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14),
+                                    Mux(self.mode.set_dac, self.dac_data[14:], 0xAF))),
+        ]
+
+        self.comb += [
+            self.adc_data.eq(Cat(adc_pads.o_data[0], adc_pads.o_data[1]))       # TODO: change adc_pads for self.adc module
+        ]
+
+
+        # control over external circuits as afe power down, afe gain
+        self.comb += [
+            adc_pads.shdn_n.eq(self.ctrl.adc_afe_pwr),
+            dac_pads.shdn_n.eq(self.ctrl.dac_afe_pwr),
+            
+            adc_pads.gainx10.eq(self.ctrl.adc_gainx10),
+        ]
