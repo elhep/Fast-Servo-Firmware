@@ -41,7 +41,7 @@ class ServoController(Module):
 
         # self.submodules.adc = ADC(adc_p, pads)
         self.submodules.dac = DAC()
-        # self.submodules.iir = IIR(iir_p, channels=2)
+        self.submodules.iir = IIR(iir_p, channels=2)
 
         self.submodules.dac_spi = SPI(dac_pads, spi_p)
         self.submodules.adc_spi = SPI(adc_pads, spi_p)
@@ -82,9 +82,9 @@ class ServoController(Module):
         # feed DAC with out values - either provided by kernel or form IIR
         self.comb += [
             self.dac.idata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14), 
-                                    Mux(self.mode.set_dac, self.dac_data[:14], 0xFA))),
+                                    Mux(self.mode.set_dac, self.dac_data[:14], self.iir.dac[0]))),
             self.dac.qdata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14),
-                                    Mux(self.mode.set_dac, self.dac_data[14:], 0xAF))),
+                                    Mux(self.mode.set_dac, self.dac_data[14:], self.iir.dac[1]))),
         ]
 
         self.comb += [
@@ -98,4 +98,10 @@ class ServoController(Module):
             dac_pads.shdn_n.eq(self.ctrl.dac_afe_pwr),
             
             adc_pads.gainx10.eq(self.ctrl.adc_gainx10),
+        ]
+
+        self.comb += [
+            self.iir.adc[0].eq(adc_pads.o_data[0]),
+            self.iir.adc[1].eq(adc_pads.o_data[1]),
+
         ]
