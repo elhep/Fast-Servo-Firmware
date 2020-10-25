@@ -14,7 +14,7 @@ class ServoController(Module):
 
         self.spi_params = spi_p = SPIParams(data_width=16, clk_width=3, msb_first=1)    # 3 cycles * 8 ns = 24ns <- half cycle of SPI
 
-
+        # 0x00-0x02
         self.ctrl = Record([
             ("rst", 1),
             ("adc_afe_pwr", 1),
@@ -25,19 +25,27 @@ class ServoController(Module):
             ("adc_gainx10", 2),
         ])
 
+        # 0x03
         self.mode = Record([
             ("read_adc", 1),
             ("set_dac", 1)
         ])
 
-
+        # 0x04
         self.init = Record([
             ("dac_init", 1),
             ("adc_init", 1)
         ])
 
         self.adc_data = Signal((32, True))
-        self.dac_data = Signal((28, True))
+        
+        # dac_ctrl layout (MSB to LSB):
+        # | 1   |   1   |   14  |   14  |
+        # qdata load new | idata load new | qdata | idata|
+        self.dac_ctrl = Signal((30, True))
+
+        idata = Signal((14, True), reset_less=True)
+        qdata = Signal((14, True), reset_less=True)
 
         # self.submodules.adc = ADC(adc_p, pads)
         self.submodules.dac = DAC()
@@ -75,19 +83,22 @@ class ServoController(Module):
             # when dac clear asserted, set DAC outputs to middle point value of the full scale (0V)
             If(self.ctrl.dac_clr,
                 self.ctrl.dac_clr.eq(0),
-                self.dac_data.eq(Replicate(0, 28))
+                self.dac_ctrl.eq(Cat(Replicate(0, 28), self.dac_ctrl[-2:]))
             )
         ]
 
         # feed DAC with out values - either provided by kernel or form IIR
         self.comb += [
+            idata.eq(Mux(self.dac_ctrl[-2], self.dac_ctrl[:14], idata)),
+            qdata.eq(Mux(self.dac_ctrl[-1], self.dac_ctrl[14:-2], qdata)),
+
             self.dac.idata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14), 
-                                    Mux(self.mode.set_dac, self.dac_data[:14], self.iir.dac[0]))),
+                                    Mux(self.mode.set_dac, idata, self.iir.dac[0]))),
             self.dac.qdata.eq(Mux(self.ctrl.dac_clr, Replicate(0, 14),
-                                    Mux(self.mode.set_dac, self.dac_data[14:], self.iir.dac[1]))),
+                                    Mux(self.mode.set_dac, qdata, self.iir.dac[1]))),
         ]
 
-        self.comb += [
+        self.sync += [
             self.adc_data.eq(Cat(adc_pads.o_data[0], adc_pads.o_data[1]))       # TODO: change adc_pads for self.adc module
         ]
 

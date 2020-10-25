@@ -74,18 +74,30 @@ class ControllerSim(ServoController):
         for i in range(15):
             yield
 
-        # try setting dac value skipping IIR output
-        yield self.dac_data.eq((0x28FC << 14) | 0x3CFC)
+        # try setting dac value skipping IIR output without setting WE bits
+        yield self.dac_ctrl.eq((0x28FC << 14) | 0x3CFC)
         for i in range(10):
             yield
+
+        # try setting dac value skipping IIR output setting WE bits
+        yield self.dac_ctrl.eq((0b11<<28) | (0x28FC << 14) | 0x3CFC)
+        for i in range(10):
+            yield
+
         # set dac outputs to 0
         yield self.ctrl.dac_clr.eq(1)
         for i in range(10):
             yield
-        # try setting dac value skipping IIR output again
+        # try setting dac value skipping IIR output again without setting WE bits
         # but set mode register first
-        yield self.dac_data.eq((0x28FC << 14) | 0x3CFC)
+        yield self.dac_ctrl.eq((0x28FC << 14) | 0x3CFC)
         yield  self.mode.set_dac.eq(1)
+        for i in range(10):
+            yield
+            
+        # try setting dac value skipping IIR output again but with setting WE bits
+        # mode register is set already
+        yield self.dac_ctrl.eq((0b11<<28) | (0x28FC << 14) | 0x3CFC)
         for i in range(10):
             yield
         yield self.ctrl.dac_clr.eq(1)
