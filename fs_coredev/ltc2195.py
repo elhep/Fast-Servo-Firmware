@@ -95,7 +95,11 @@ class LTC2195:
         :param afe_gain_en: Enables AFE x10 signal amplification
         """
         pass
-        #TODO
+        
+        if afe_gain_en == 0:
+            self.afe.channel.off()
+        else:
+            self.afe.channel.on()
 
 
 
