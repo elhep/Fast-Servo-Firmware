@@ -1,0 +1,12 @@
+[submodule "modules/artiq"]
+	path = modules/artiq
+	url = git@github.com:m-labs/artiq.git
+[submodule "modules/misoc"]
+	path = modules/misoc
+	url = git@github.com:m-labs/misoc.git
+[submodule "modules/migen"]
+	path = modules/migen
+	url = git@github.com:m-labs/migen.git
+[submodule "modules/nix-scripts"]
+	path = modules/nix-scripts
+	url = https://git.m-labs.hk/M-Labs/nix-scripts.git
