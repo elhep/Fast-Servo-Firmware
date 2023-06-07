@@ -1,3 +1,9 @@
 __pycache__
 builds/*
 .venv
+!builds/fast_servo_hw.xsa
+
+vivado.log
+vivado.jou
+*.backup.log
+*.backup.jou
