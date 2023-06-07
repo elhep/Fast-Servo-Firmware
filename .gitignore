@@ -1,6 +1,3 @@
-__pycache__/
-*.v
-*.vcd
-modules/
-nix/
-run_shell
+__pycache__
+builds/*
+.venv
