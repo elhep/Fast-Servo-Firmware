@@ -1,0 +1,41 @@
+/include/ "system-conf.dtsi"
+/ {
+};
+
+&spi0 {
+    is-decoded-cs = <1>;
+    num-cs = <4>;
+    // LTC2195 - main ADC
+    spidev@0x01 {
+        compatible = "spidev";
+        spi-max-frequency = <50000000>;
+        reg = <1>;
+    };
+    // AUX ADC channel A
+    spidev@0x02 {
+        compatible = "spidev";
+        spi-max-frequency = <50000000>;
+        reg = <2>;
+    };
+    // AUX ADC channel B
+    spidev@0x03 {
+        compatible = "spidev";
+        spi-max-frequency = <50000000>;
+        reg = <3>;
+    };
+    // AUX DAC
+    spidev@0x04 {
+        compatible = "spidev";
+        spi-max-frequency = <50000000>;
+        reg = <4>;
+    };
+};
+
+&spi1 {
+    // AD9117 - main DAC
+    spidev@0x00 {
+        compatible = "spidev";
+        spi-max-frequency = <50000000>;
+        reg = <0>;
+    };
+};
