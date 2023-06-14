@@ -2,6 +2,7 @@ __pycache__
 builds/*
 .venv
 !builds/fast_servo_hw.xsa
+!builds/fast_servo_petalinux
 
 vivado.log
 vivado.jou
