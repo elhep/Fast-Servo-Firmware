@@ -1,10 +1,28 @@
-# This file is part of Fast Servo board support package.
+# This file is part of Fast Servo Software Package.
 #
-# Copyright (c) 2022 Jakub Matyas <jakubk.m@gmail.com>
-# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (C) 2022-2023 Jakub Matyas
+# Warsaw University of Technology <jakubk.m@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful, 
+# but WITHOUT ANY WARRANTY; without even the implied warranty of 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from migen.build.generic_platform import *
 from migen.build.xilinx import XilinxPlatform
+
+import os
+from fast_servo.gateware import verilog_dir
+
 
 # IOs ----------------------------------------------------------------------------------------------
 
@@ -304,6 +322,9 @@ class Platform(XilinxPlatform):
         XilinxPlatform.__init__(self, "xc7z015-clg485-1", _io, _connector_gpio + _connector_eem, toolchain="vivado")
         ps7_config = ps7_config_board_preset
         self.ps7_config = ps7_config
+
+        verilog_sources = os.listdir(verilog_dir)
+        self.add_sources(verilog_dir, *verilog_sources)
 
     def do_finalize(self, fragment):
         try:

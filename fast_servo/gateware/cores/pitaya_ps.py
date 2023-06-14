@@ -1,8 +1,10 @@
 # Copyright 2014-2015 Robert Jördens <jordens@gmail.com>
 # Copyright 2018-2022 Benjamin Wiegand <benjamin.wiegand@physik.hu-berlin.de>
 # Copyright 2021-2022 Bastian Leykauf <leykauf@physik.hu-berlin.de>
+# Copyright 2023 Jakub Matyas
+# Warsaw University of Technology <jakubk.m@gmail.com>
 #
-# This file is part of Linien and based on redpid.
+# This file is part of Fast Servo Software Package and is based on Linien.
 #
 # Linien is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

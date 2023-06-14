@@ -1,7 +1,21 @@
-# This file is part of Fast Servo board support package.
+# This file is part of Fast Servo Software Package.
 #
-# Copyright (c) 2023 Jakub Matyas <jakubk.m@gmail.com>
-# SPDX-License-Identifier: BSD-2-Clause
+# Copyright (C) 2023 Jakub Matyas
+# Warsaw University of Technology <jakubk.m@gmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful, 
+# but WITHOUT ANY WARRANTY; without even the implied warranty of 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import os
 
@@ -9,11 +23,11 @@ from migen import *
 from misoc.interconnect import csr_bus
 from misoc.interconnect.csr import AutoCSR, CSRStorage
 
-from gateware.cores.adc import ADC, AUX_ADC_CTRL
-from gateware.cores.dac import AUX_DAC_CTRL, DAC
-from gateware.cores.pitaya_ps import Axi2Sys, Sys2CSR, SysCDC, SysInterconnect
-from gateware.cores.ps7 import PS7
-from gateware.cores.spi_phy import SpiInterface, SpiPhy
+from fast_servo.gateware.cores.adc import ADC, AUX_ADC_CTRL
+from fast_servo.gateware.cores.dac import AUX_DAC_CTRL, DAC
+from fast_servo.gateware.cores.pitaya_ps import Axi2Sys, Sys2CSR, SysCDC, SysInterconnect
+from fast_servo.gateware.cores.ps7 import PS7
+from fast_servo.gateware.cores.spi_phy import SpiInterface, SpiPhy
 
 
 class CRG(Module):
@@ -225,8 +239,6 @@ class BaseSoC(PS7, AutoCSR):
         PS7.do_finalize(self)
 
     def build(self, *args, **kwargs):
-        verilog_path = os.path.abspath("gateware/verilog")
-        self.platform.add_source_dir(verilog_path)
         self.platform.build(self, *args, **kwargs)
 
 class LED(Module, AutoCSR):
@@ -238,7 +250,7 @@ class LED(Module, AutoCSR):
 
 
 if __name__ == "__main__":
-    from gateware.fast_servo_platform import Platform
+    from fast_servo.gateware.fast_servo_platform import Platform
     platform = Platform()
     fast_servo = BaseSoC(platform)
 
