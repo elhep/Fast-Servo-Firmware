@@ -76,15 +76,6 @@ IDELAYCTRL IDELAYCTRL_inst (
 );
 
 assign idelay_rdy = s_idelay_rdy;
-// for each lane create Differential input buffer, IDELAYE instance (fixed delay for now),
-// and deserializer working in a DDR mode.
-//  Each Deserializer receives its input from IDELAYE and works with 
-// CLK = DCO (assumed 200 MHz returning clock from LTC2195, with data valid in a DDR manner)
-// and CLK_DIV = DCO/2 (freq) - two times slower clock to fabric with deserilized data valid
-
-// reg [4:0] old_value;
-// reg [4:0] s_cnt_value;
-wire s_load;
 
 
 reg s_rst;
@@ -102,14 +93,6 @@ always @(posedge DCO_2D) begin
             rst_cnt <= rst_cnt + 1;
     end
 end
-
-// always @(posedge DCO_2D) begin
-//     s_cnt_value <= delay_val[4:0]; 
-//     old_value <= s_cnt_value;
-// end
-
-//assign s_load = (s_cnt_value == old_value) ? 1'b0 : 1'b1;
-
 
 genvar lane;
 generate for (lane=0; lane<N_LANES; lane=lane+1) begin

@@ -23,16 +23,14 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 module AD9117(
-	input	 wire							clk_in,
-	input	 wire						   rst_in,
-
+	input wire			clk_in,
+	input wire			rst_in,
 	
+	input  wire	  	[13:0] DAC0_in,
+	input  wire	  	[13:0] DAC1_in,
 	
-	input  wire	  [13:0] DAC0_in,
-	input  wire	  [13:0] DAC1_in,
-	
-	output wire				  DCLKIO,
-	output wire				  [13:0] D_out
+	output wire			DCLKIO,
+	output wire		[13:0] D_out
 );
 
 
