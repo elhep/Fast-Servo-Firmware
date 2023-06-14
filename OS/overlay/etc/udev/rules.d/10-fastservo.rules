@@ -1,0 +1,29 @@
+# XCFG
+# give group access rights
+SUBSYSTEM=="xdevcfg", GROUP="xdevcfg"
+
+# UIO devices
+# rename devices and give group access rights
+SUBSYSTEM=="uio", SYMLINK+="uio/%s{name}", GROUP="uio"
+
+# GPIO character device
+# rename devices and give group access rights
+# NOTE: this rule does not create a symlink for ZYNQ GPIO controller, since there is no "name" attribute
+#SUBSYSTEM=="gpio", SYMLINK+="gpio/%s{name}", GROUP="gpio"
+SUBSYSTEM=="gpio", GROUP="gpio"
+
+# GPIO
+# give group access rights
+# https://www.raspberrypi.org/forums/viewtopic.php?f=29&t=9667
+#SUBSYSTEM=="gpio", ACTION=="add",    RUN+="/bin/chgrp -R gpio /sys/class/gpio", RUN+="/bin/chmod -R g=u /sys/class/gpio"
+#SUBSYSTEM=="gpio", ACTION=="change", RUN+="/bin/chgrp -R gpio /sys/class/gpio", RUN+="/bin/chmod -R g=u /sys/class/gpio"
+#SUBSYSTEM=="gpio", ACTION=="add",    RUN+="/bin/chgrp -R gpio /sys%p", RUN+="/bin/chmod -R g=u /sys%p"
+#SUBSYSTEM=="gpio", ACTION=="change", RUN+="/bin/chgrp -R gpio /sys%p", RUN+="/bin/chmod -R g=u /sys%p"
+
+# SPI
+# give group access rights
+SUBSYSTEM=="spidev", GROUP="spi"
+
+# UART1
+# /dev/ttyPS1 device is already part of the group "dialout"
+
