@@ -156,3 +156,5 @@ def write_ramp():
 
 if __name__ == "__main__":
     main_dac_init()
+    power_down(0, False)
+    power_down(1, False)
