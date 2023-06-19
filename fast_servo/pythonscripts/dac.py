@@ -71,7 +71,8 @@ def main_dac_init():
         rx_buffer = spi.xfer2(spi_buffer)
         print(f"0x{rx_buffer[0]:02X}{rx_buffer[1]:02X}")
 
-        spi_buffer = [0x02, 0xB4]
+        # set to 2's complement and Q to be first of pair on data input pads
+        spi_buffer = [0x02, 0xA4]
         rx_buffer = spi.xfer2(spi_buffer)
         spi_buffer = [0x82, 00]
         rx_buffer = spi.xfer2(spi_buffer)
