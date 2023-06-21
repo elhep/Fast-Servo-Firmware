@@ -93,7 +93,7 @@ class CRG(Module):
 
 
 class BaseSoC(PS7, AutoCSR):
-    def __init__(self, platform):
+    def __init__(self, platform, passthrouh=False):
         PS7.__init__(self, platform)
 
         # TODO: 
@@ -151,6 +151,19 @@ class BaseSoC(PS7, AutoCSR):
         # self.add_main_dac(platform)
         self.submodules.dac = DAC(platform)
         self.csr_devices.append("dac")
+        
+        # DEBUG
+        if passthrouh:
+            DAC_DATA_WIDTH = 14
+            for ch in range(2):
+                saturate = Signal()
+                adc_signal = self.adc.data_out[ch]
+                self.comb += [
+                    saturate.eq(adc_signal[-3:] != Replicate(adc_signal[-1], 3)),
+                    self.dac.data_in[ch].eq(Mux(saturate,
+                            Cat(Replicate(~adc_signal[-1], DAC_DATA_WIDTH-1), adc_signal[-1]),
+                            adc_signal[:-2]))
+                ]
 
         si_5340_nrst = platform.request("nrst")
         self.comb += si_5340_nrst.eq(1)
@@ -250,9 +263,28 @@ class LED(Module, AutoCSR):
 
 
 if __name__ == "__main__":
+    import subprocess
     from fast_servo.gateware.fast_servo_platform import Platform
-    platform = Platform()
-    fast_servo = BaseSoC(platform)
+    import argparse
 
-    build_dir = "builds/fast_servo_gw"
-    fast_servo.build(build_dir=build_dir, run=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", default=False, help="Hardwire ADC data to DAC")
+    args = parser.parse_args()
+
+    
+    root_path = os.getcwd()
+    platform = Platform()
+    fast_servo = BaseSoC(platform, passthrouh=args.debug)
+
+    build_dir = "builds/fast_servo_gw_debug" if args.debug else"builds/fast_servo_gw"
+    build_name = "top"
+    fast_servo.build(build_dir=build_dir, build_name=build_name, run=True)
+    os.chdir(os.path.join(root_path, build_dir))
+    with open(f"{build_name}.bif", "w") as f:
+        f.write(f"all:\n{{\n\t{build_name}.bit\n}}")
+    
+    cmd = f"bootgen -image {build_name}.bif -arch zynq -process_bitstream bin -w on".split(" ")
+    subprocess.run(cmd)
+
+    
+
