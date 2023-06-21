@@ -305,11 +305,15 @@ def adc_aux_read(port, type, pin):
         spi.close()
 
 
-if __name__ == "__main__":
+def main():
     main_adc_config(0x811F)
     word_align()
 
     main_adc_test_mode(False)
 
-    write_to_memory(ADC_AFE_CTRL_ADDR, 0b1100)
+    write_to_memory(ADC_AFE_CTRL_ADDR, 0b1100) # {-, -, ch2_X10, ch1_X10}
     print(read_from_memory(ADC_AFE_CTRL_ADDR, 1)[0])
+
+
+if __name__ == "__main__":
+    main()

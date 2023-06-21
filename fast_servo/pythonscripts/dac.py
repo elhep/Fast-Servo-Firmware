@@ -71,8 +71,8 @@ def main_dac_init():
         rx_buffer = spi.xfer2(spi_buffer)
         print(f"0x{rx_buffer[0]:02X}{rx_buffer[1]:02X}")
 
-        # set to 2's complement and Q to be first of pair on data input pads
-        spi_buffer = [0x02, 0xA4]
+        # set to 2's complement and I to be first of pair on data input pads
+        spi_buffer = [0x02, 0xB4]
         rx_buffer = spi.xfer2(spi_buffer)
         spi_buffer = [0x82, 00]
         rx_buffer = spi.xfer2(spi_buffer)
@@ -173,8 +173,10 @@ def write_ramp():
     for value in signal:
         write_sample(0, value)
 
-
-if __name__ == "__main__":
+def main():
     main_dac_init()
     power_down(0, False)
     power_down(1, False)
+    
+if __name__ == "__main__":
+    main()
