@@ -19,6 +19,7 @@
 
 from migen import *
 from misoc.interconnect.csr import AutoCSR, CSRStorage
+from migen.genlib.io import DDROutput
 
 
 class DAC(Module, AutoCSR):
@@ -52,14 +53,21 @@ class DAC(Module, AutoCSR):
             ),
         ]
 
-        self.specials += Instance(
-            "AD9117",
-            i_clk_in=ClockSignal("dco2d"),
-            i_rst_in=ResetSignal("sys"),
-            i_DAC0_in=output_data_ch0,
-            i_DAC1_in=output_data_ch1,
-            o_DCLKIO=dac_pads.dclkio,
-            o_D_out=dac_pads.data,
+        # data
+        for lane in range(14):
+            self.specials += DDROutput(
+                i1 = output_data_ch0[lane], 
+                i2 = output_data_ch1[lane], 
+                o = dac_pads.data[lane], 
+                clk = ClockSignal("dco2d")
+            )
+        
+        # clock forwarding
+        self.specials += DDROutput(
+            i1 = 0b0,
+            i2 = 0b1,
+            o = dac_pads.dclkio,
+            clk = ClockSignal("dco2d"),
         )
 
 

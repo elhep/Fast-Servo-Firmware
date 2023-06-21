@@ -158,8 +158,8 @@ class ADC(Module, AutoCSR):
             i_D1_in_n=adc_pads.data1_n,
             i_bitslip=bitslip,
             i_delay_val=tap_delay_val,
-            o_ADC0_out=self.data_out[0],
-            o_ADC1_out=self.data_out[1],
+            o_ADC0_out=self.data_out[1],        # LANES swapped on hardware
+            o_ADC1_out=self.data_out[0],
             o_FR_out=self.s_frame,
             o_o_data_from_pins=dummy,
             o_idelay_rdy=dummy_idelay_rdy,
